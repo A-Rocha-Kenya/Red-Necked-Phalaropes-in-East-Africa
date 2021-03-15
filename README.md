@@ -1,3 +1,6 @@
+<link rel="icon" type="image/png" sizes="32x32" href="Media/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="Media/favicon-16x16.png">
+
 # Red-Necked Phalaropes in East Africa
 Review of the red-necked phalarope sightings in East Africa and discussion of the influence that the extreme positive Inverse Ocean Dipole played in the afflux of Red-necked phalaropes on the Kenyan Coast in February 2020.
 
