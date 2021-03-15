@@ -1,0 +1,280 @@
+---
+title: "Analysis of sightings of Red-necked Phalarope in East Africa"
+author: "Raphaël Nussbaumer"
+date: "25/02/2021"
+output: 
+  prettydoc::html_pretty:
+    theme: hpstr
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(leaflet)
+library(DT)
+library(viridis)
+library(plotly)
+library(raster)
+library(gridExtra)
+library(sf)
+library(tmap)
+data("World")
+```
+
+
+## Load and display all data
+
+```{r}
+dm <- read.csv('sightings.csv') %>% 
+  mutate( 
+    count = ifelse(count=="x",countClass,count),      
+    count = as.numeric(count),
+    countClass = factor(countClass),
+    date= as.Date(date, format="%d/%m/%Y"),
+    dayOfYear = as.numeric(strftime(date,format="%j")),
+    year = as.numeric(strftime(date,format="%Y") ) 
+  )
+
+dm %>% 
+  dplyr::select(-c(countClass,validity,latitude,longitude,dayOfYear,year)) %>% 
+  mutate(ebird = paste0('<a href="',ebird,'#renpha">',str_replace(ebird,'https://ebird.org/checklist/',''),'</a>')) %>% 
+  datatable(filter = 'top', rownames = FALSE, escape = FALSE)
+```
+
+
+## Maps of the sightings
+
+```{r}
+
+pal <- colorNumeric(hsv(1 - ((1:365) + (365/4))%%365/365, s = 0.8, v = 0.8), domain=c(1,365))
+pal2 <- colorFactor(palette="Set1" ,domain=dm$cost)
+
+# create popup
+dm %>%
+  mutate(popup = iconv(paste('<b>Number</b>: ', count ,
+                             '<br><b>Location</b>: ', location,
+                             '<br><b>Date</b>: ',date,
+                             '<br><b>Observer</b>: ', observer,
+                             '<br><b>Description</b>: ', description,
+                             '<br><b>Source</b>: ', source,
+                             ifelse(source=='eBird',paste0(' - <a href="',ebird,'#renpha">',str_replace(ebird,'https://ebird.org/checklist/',''),'</a>'),''),
+                             ifelse(picture,'<br><b>Photo</b>','')
+  )
+  ),  "UTF-8", "UTF-8", sub='') %>% 
+  filter(!is.na(latitude)) %>% 
+  #filter(coast !="inland") %>% 
+  arrange( desc(count) ) %>% 
+  leaflet(width = "100%") %>%
+  #addTiles() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircleMarkers(lng = ~longitude, lat = ~latitude, popup = ~popup, 
+                   radius = ~ifelse(is.na(count),7,7+log(count)*3),
+                   fillColor = ~pal(dayOfYear),
+                   stroke = 0,
+                   opacity= 0.4,
+                   weight = 2,
+                   color = ~pal2(coast), 
+                   fillOpacity = .2,
+                   # clusterOptions = markerClusterOptions()#maxClusterRadius = 1)
+  ) %>%
+  addLegend("bottomright", pal = pal,
+            title="Date",
+            values = ~seq(1,365, length.out = 12),
+            bins = seq(1,365, length.out = 12),
+            labFormat = function(type = "numeric", cuts){
+              format(ISOdate(2004,1,1)+days(round(cuts)),"%B")
+            },
+            opacity = 1
+  )
+
+```
+
+```{r, warning=F}
+dmt <- dm %>%
+  filter(!is.na(latitude)) %>% 
+  arrange( desc(count) ) %>% 
+  mutate(
+    # size = ifelse(is.na(count), 1, log(count))
+    size = 1+3*log(as.numeric(as.character(countClass))),
+    size = ifelse(is.na(size),1,size)
+  )
+
+spdf <- SpatialPointsDataFrame(coords = cbind( dmt$longitude,dmt$latitude), data = dmt)
+
+tm_shape(World, bbox = st_bbox(spdf)+cbind(-1,-1,1,1)) +
+  tm_polygons() +
+  tm_shape(spdf) +
+  tm_symbols(size="size") 
+
+```
+
+## Counts vs date
+
+### Cumulative distribution of the counts
+
+```{r}
+(dm %>% 
+   filter(!is.na(count)) %>% 
+   arrange(count) %>% 
+   ggplot( aes(count)) + 
+   stat_ecdf(geom = "step") +
+   scale_x_log10(name="Count") +
+   theme_light() +
+   scale_y_continuous(name="Cumulative PDF")
+) %>% ggplotly()
+```
+
+### Counts per period and coast
+
+```{r}
+dm %>% 
+  filter(count<3000) %>%  # remove the count to avoid baising the mean
+  mutate(coast = ifelse(coast!="inland","coast","insland")) %>% 
+  group_by(coast) %>% 
+  summarize(
+    nb_sightings = n(), 
+    mean_count = mean(count, na.rm = T),
+    max_count = max(count, na.rm = T)
+  ) %>% 
+  kableExtra::kable()
+```
+
+### Counts along the year
+
+```{r}
+
+dm %>% 
+  ggplot(aes( dayOfYear, fill = as.factor(countClass))) +
+  geom_histogram(binwidth = 14,position = "stack") +
+  scale_x_continuous(breaks=as.numeric(format(ISOdate(2000,1:12,1),"%j")),
+                     labels=format(ISOdate(2000,1:12,1),"%b"),
+                     minor_breaks = c(),
+                     expand = c(0,0),
+                     name="Date"
+                     #limits = c(100,365)
+  ) + 
+  scale_y_continuous(expand = c(0,0), name="Number of sightings" ) +
+  theme_light() + 
+  # scale_fill_viridis(option="magma", discrete = TRUE, direction=-1)
+  scale_fill_brewer(palette ='YlOrBr')
+
+```
+
+
+### Habitat on the coast
+
+```{r, warning=F}
+
+dmc <- dm %>% 
+  mutate(peak = ifelse(dayOfYear>170 & dayOfYear<349, "sept-dec","jan-may")) %>% 
+  #filter(coast!="inland") %>% 
+  mutate(coast = ifelse(coast!="inland",'coast',coast)) %>% 
+  group_by(coast,peak) %>% 
+  filter(count<3000) %>% 
+  summarize(
+    nb_sightings = n(),
+    mean_count = mean(count),
+    .groups="drop"
+  ) 
+
+dmc %>% 
+  kableExtra::kable()
+
+dmc %>% 
+  filter(peak == "sept-dec") %>% 
+  ggplot(aes(x="", y=nb_sightings, fill=coast)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0)
+
+dmc %>% 
+  filter(peak == "jan-may") %>% 
+  ggplot(aes(x="", y=nb_sightings, fill=coast)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0)
+
+
+```
+
+```{r}
+dm %>% 
+  filter(count<3000) %>%  # remove the count to avoid baising the mean
+  mutate(peak = ifelse(dayOfYear>170 & dayOfYear<349, "sept-dec","jan-may")) %>% 
+  group_by(coast) %>% 
+  summarize(
+    nb_sightings = n(),
+    mean_count = mean(count, na.rm = T),
+    max_count = max(count, na.rm = T),
+    min_count = min(count, na.rm = T)
+  ) %>% 
+  kableExtra::kable()
+```
+
+
+### Change along the year
+No useful information
+
+```{r}
+dm %>% 
+  filter(!is.na(count)) %>% 
+  ggplot(aes( x=year, y=as.numeric(count))) +
+  geom_point() +
+  scale_y_log10() +
+  geom_smooth(method=loess, formula=y ~ x) + 
+  theme_bw()
+
+dm %>% 
+  ggplot(aes( x=year)) +
+  geom_histogram(binwidth = 1) + 
+  theme_bw()
+
+```
+
+
+# NPP Map
+```{r, warning=FALSE}
+v <- c(0,5500)
+col <- RColorBrewer::brewer.pal(9,"Greens")
+pal <- colorNumeric(c(col, rep(col[length(col)],1,60)), v, na.color = "transparent")
+
+leaflet() %>% 
+  addTiles(urlTemplate = 'https://api.mapbox.com/styles/v1/rafnuss/cklnbuqev2ubk17npj2u8uqee/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoicmFmbnVzcyIsImEiOiIzMVE1dnc0In0.3FNMKIlQ_afYktqki-6m0g') %>% 
+  addRasterImage(raster("npp_1998.tif"), colors = pal, opacity = 0.8, group = "1998") %>% 
+  addRasterImage(raster("npp_2020.tif"), colors = pal, opacity = 0.8, group = "2020") %>% 
+  addRasterImage(raster("npp_meanAll.tif"), colors = pal, opacity = 0.8, group = "All") %>% 
+  addLayersControl(
+    overlayGroups = c("1998", "2020", "All"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend("bottomright", pal = pal, values = v, title = "Net Primary Productivity")
+```
+
+```{r, warning=FALSE}
+
+file = c('1998','2020','meanAll')
+max_npp <- 700
+p <- list()
+
+for (i in 1:length(file)){
+  NPP_df <- as.data.frame(raster(paste0("npp_", file[i],".tif")), xy = TRUE) %>% 
+    rename(npp=starts_with('npp')) %>% 
+    mutate(
+      npp = ifelse(npp>max_npp,max_npp,npp)
+    )
+  
+  world_map <- map_data("world")
+  
+  p[[i]] <-ggplot() +
+    geom_raster(data = NPP_df , aes(x = x, y = y, fill = npp), na.rm = TRUE) +
+    scale_fill_viridis_c(limits = c(0,max_npp)) +
+    geom_polygon(data=world_map, aes(x = long, y = lat, group = group), fill="lightgray", colour = "white")+
+    # theme_nothing() +
+    xlim(range(NPP_df$x)+c(-12,10)) +
+    ylim(range(NPP_df$y)+c(-5,5)) +
+    coord_quickmap()
+}
+
+p <- do.call(grid.arrange,p)
+# ggsave('map.eps',p,device="eps")
+
+```
