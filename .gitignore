@@ -1,0 +1,12 @@
+*doc*
+
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+*_cache/
+/cache/
+.Rproj.user/
+/*.Rcheck/
+.Renviron
