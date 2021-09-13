@@ -19,6 +19,10 @@ library(raster)
 library(gridExtra)
 library(sf)
 library(tmap)
+library(readxl)
+library(MASS)
+library(jtools)
+library(AER)
 data("World")
 ```
 
@@ -143,7 +147,6 @@ dm %>%
 ### Counts along the year
 
 ```{r}
-
 dm %>% 
   ggplot(aes( dayOfYear, fill = as.factor(countClass))) +
   geom_histogram(binwidth = 14,position = "stack") +
@@ -158,7 +161,22 @@ dm %>%
   theme_light() + 
   # scale_fill_viridis(option="magma", discrete = TRUE, direction=-1)
   scale_fill_brewer(palette ='YlOrBr')
+```
+```{r}
 
+dm %>% 
+  mutate(coast = ifelse(coast!="inland",'coast',coast)) %>% 
+  ggplot(aes( dayOfYear, fill = as.factor(coast))) +
+  geom_histogram(binwidth = 14,position = "stack") +
+  scale_x_continuous(breaks=as.numeric(format(ISOdate(2000,1:12,1),"%j")),
+                     labels=format(ISOdate(2000,1:12,1),"%b"),
+                     minor_breaks = c(),
+                     expand = c(0,0),
+                     name="Date"
+                     #limits = c(100,365)
+  ) + 
+  scale_y_continuous(expand = c(0,0), name="Number of sightings" ) +
+  theme_light()
 ```
 
 
@@ -175,6 +193,8 @@ dmc <- dm %>%
   summarize(
     nb_sightings = n(),
     mean_count = mean(count),
+    min_count = min(count),
+    max_count = max(count),
     .groups="drop"
   ) 
 
@@ -185,13 +205,15 @@ dmc %>%
   filter(peak == "sept-dec") %>% 
   ggplot(aes(x="", y=nb_sightings, fill=coast)) +
   geom_bar(stat="identity", width=1) +
-  coord_polar("y", start=0)
+  coord_polar("y", start=0) +
+  theme_light()
 
 dmc %>% 
   filter(peak == "jan-may") %>% 
   ggplot(aes(x="", y=nb_sightings, fill=coast)) +
   geom_bar(stat="identity", width=1) +
-  coord_polar("y", start=0)
+  coord_polar("y", start=0) +
+  theme_light()
 
 
 ```
@@ -212,26 +234,173 @@ dm %>%
 
 
 ### Change along the year
-No useful information
 
-```{r}
+
+```{r, warning=F}
 dm %>% 
-  filter(!is.na(count)) %>% 
-  ggplot(aes( x=year, y=as.numeric(count))) +
+  mutate(coast = fct_rev(factor(ifelse(coast!="inland",'coast',coast),ordered = TRUE))) %>% 
+  filter(!is.na(year)) %>% 
+  ggplot(aes( year, fill = coast)) +
+  geom_histogram(binwidth = 1,position = "stack") +
+  scale_x_continuous(minor_breaks = c(),
+                     expand = c(0,0),
+                     name="Date",
+                     breaks=seq(1960,2020,by=5),
+                     limits = c(1960,2020)
+  ) + 
+  scale_y_continuous(expand = c(0,0), name="Number of sightings" ) +
+  theme_light()
+```
+# Dipole Mode Index (DMI)
+
+source: https://psl.noaa.gov/gcos_wgsp/Timeseries/DMI/
+
+```{r, warning=FALSE}
+dmi <- read_excel("dipole_mode_index.xlsx",sheet="dmiwest", col_types = "numeric") %>% 
+  pivot_longer(!year, names_to = "month", values_to = "dmi")  %>% 
+  # filter(year<2021 & year>min(dm$year)-1) %>% 
+  mutate(date=as.Date(parse_date_time(paste0(month(parse_date_time(month, "%m")),'/',year), "%m/%y")) )
+
+dmi_s <- dmi %>% 
+  filter(month %in% c('January','February','March','October','November','December')) %>% 
+  mutate(year = ifelse(month %in% c('October','November','December'),year+1,year)) %>% 
+  group_by(year) %>% 
+  summarise(dmi=mean(dmi)) %>% 
+  mutate(year=as.Date(parse_date_time(year,"%y"))) %>% 
+  filter(year(year)<2021)
+
+
+ggplot() +
+  geom_line(data=dmi, aes(x=date,y=dmi),color="grey") + 
+  geom_point(data=dmi_s , aes(x=year,y=dmi),color="black") + 
+  scale_x_date(date_labels = "%m-%Y",minor_breaks = c(),
+                     expand = c(0,0), name="Date",
+                     limits = c(ymd("1960-01-01"),ymd("2021-01-01"))
+  ) + 
+  scale_y_continuous(expand = c(0,0), name="Dipole Mode Index", limits = c(-1,1) ) +
+  theme_light()
+```
+
+## Sightings vs DMI + year
+
+```{r, warning=FALSE}
+dmycoast = dm %>% 
+  filter(coast!="inland") %>% 
+  mutate(year=ifelse(dayOfYear>365/2,year+1,year)) %>% 
+  mutate(year=as.Date(parse_date_time(year,"%y"))) %>% 
+  group_by(year) %>% 
+  summarise(
+    nb_sightings=n(),
+    avg_count=mean(count,na.rm=T),
+    max_count=max(count,na.rm=T),
+    )
+
+tmp <- dmi_s %>% merge(dmycoast,'year',all=TRUE) %>% 
+  replace(is.na(.),0) %>% 
+  filter(year(year)>1960) %>% 
+  mutate(year=year(year))
+```
+
+Check Poisson distribution fit
+```{r, warning=FALSE}
+fit <- fitdistr(tmp$nb_sightings,"Poisson")
+hist(tmp$nb_sightings,prob=TRUE)
+curve(dpois(x, fit$estimate[1]), from=0, to=5,n=6,col="red", add=T,type="p")
+```
+
+Fit GLM
+```{r, warning=FALSE}
+glmfit <- tmp %>% glm(formula="nb_sightings ~ dmi + year",family = 'poisson')
+glmfit %>% summary()
+```
+
+Check  overdispersion
+```{r, warning=FALSE}
+dispersiontest(glmfit)
+```
+
+Partial Plot
+```{r, warning=FALSE}
+effect_plot(glmfit, pred = dmi, interval = TRUE, plot.points = TRUE)
+effect_plot(glmfit, pred = year, interval = TRUE, plot.points = TRUE)
+```
+
+Plot sightings vs dmi
+```{r, warning=FALSE}
+tmp %>% # filter(year<2020) %>% 
+  ggplot(aes(x=dmi,y=nb_sightings,size=log(max_count+1),color=year)) +
   geom_point() +
-  scale_y_log10() +
-  geom_smooth(method=loess, formula=y ~ x) + 
-  theme_bw()
-
-dm %>% 
-  ggplot(aes( x=year)) +
-  geom_histogram(binwidth = 1) + 
-  theme_bw()
-
+  #geom_smooth(method = 'glm', method.args = list(family = 'poisson')) +
+  theme_light() + 
+  scale_color_viridis_c() 
 ```
 
 
-# NPP Map
+
+
+
+# NPP 
+
+## time series
+```{r, warning=FALSE}
+NPP_ts <- read_csv('NPP_east_africa_timeserie.csv',show_col_types = FALSE)
+NPP_ts$Date <- as.Date(NPP_ts$`system:time_start`,format="%b %d, %Y")
+
+NPP_tsy <- NPP_ts %>% filter(month(Date)>9|month(Date)<4) %>%
+  mutate(year=ifelse(month(Date)>6,year(Date)+1,year(Date))) %>% 
+  group_by(year) %>% 
+  summarise(NPP = mean(NPP)) %>% 
+  mutate(year=as.Date(parse_date_time(year,"%y")))
+
+ggplot() +
+  geom_line(data=NPP_ts,aes(x=Date, y=NPP) ) +
+  geom_point(data=NPP_tsy,aes(x=year, y=NPP) ) +
+  theme_light()
+```
+
+```{r}
+plot1 <- dmi_s %>% filter(year(year)>1997 & year(year)<2021) %>% ggplot(aes(x=year,y=dmi)) + geom_point() +
+  theme_light()
+plot2 <- NPP_tsy %>% ggplot(aes(x=year,y=NPP)) + geom_point() +
+  theme_light() 
+plot3 <- dmycoast %>% filter(year(year)>1997 & year(year)<2021) %>% ggplot(aes(x=year,y=nb_sightings)) + geom_point() +
+  theme_light()
+plot4 <- dmycoast %>% filter(year(year)>1997 & year(year)<2021) %>% ggplot(aes(x=year,y=max_count)) + geom_point() +
+  theme_light()
+grid.arrange(plot1, plot2, plot3, plot4, ncol=1)
+```
+Combine all dataset
+```{r}
+da <- data.frame(year=seq(1997,2021)) %>% 
+  merge(NPP_tsy %>% mutate(year=year(year)), 'year',all=TRUE) %>% 
+  merge(dmycoast%>% mutate(year=year(year)),'year',all=TRUE) %>% 
+  merge(dmi_s%>% mutate(year=year(year)),'year',all=TRUE) %>% 
+  filter(year<2021 & year>1997) %>% 
+  replace(is.na(.), 0) 
+```
+
+Plot
+
+```{r}
+da %>% 
+  ggplot( aes(NPP,dmi,label=year)) + 
+  geom_point(aes(size=nb_sightings)) +  geom_text() +
+  geom_smooth(method='lm') +
+  theme_light()
+```
+
+Fit linear model and compute correlation
+
+```{r}
+cor(da$NPP,da$dmi)
+
+da %>% lm(formula='dmi ~ NPP') %>% summary()
+
+da %>% lm(formula='nb_sightings ~ NPP') %>% summary()
+```
+
+## Map
+
 ```{r, warning=FALSE}
 v <- c(0,5500)
 col <- RColorBrewer::brewer.pal(9,"Greens")
