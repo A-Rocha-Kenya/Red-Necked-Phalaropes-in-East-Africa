@@ -10,3 +10,4 @@
 .Rproj.user/
 /*.Rcheck/
 .Renviron
+.DS_Store
