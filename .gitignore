@@ -11,3 +11,4 @@
 /*.Rcheck/
 .Renviron
 .DS_Store
+references/*
