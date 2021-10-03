@@ -11,4 +11,10 @@
 /*.Rcheck/
 .Renviron
 .DS_Store
+
+# Perso
 references/*
+1-*
+2-*
+3-*
+4-*
