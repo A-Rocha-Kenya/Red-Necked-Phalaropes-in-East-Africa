@@ -1,7 +1,8 @@
 # Red-Necked Phalaropes in East Africa
 Review of the red-necked phalarope sightings in East Africa and discussion of the influence that the extreme positive Inverse Ocean Dipole played in the influx of Red-necked phalaropes on the Kenyan Coast in February 2020.
 
-This repository contains the data and code used for the peer-review paper published in .... 
+This repository contains the data and code used for the peer-review paper:
+Nussbaumer, Raphaël, Mathieu Gravey, Améline Nussbaumer, and Colin Jackson. **2021**. “Investigating the Influence of the Extreme Indian Ocean Dipole on the 2020 Influx of Red-Necked Phalaropes *Phalaropus Lobatus* in Kenya.” *Ostrich* 1–9. doi: [10.2989/00306525.2021.1995908](https://doi.org/10.2989/00306525.2021.1995908).
 
 ![Photo](Media/RN5_6728.jpg)
 *More than 3,000 Red-necked Phalaropes were observed 2 km off the Kongo estuary on the he shore on 9 February 2020.*
@@ -35,4 +36,4 @@ The analysis of these data and the generation of the figures was performed with 
 
 ## How to cite?
 
-> Nussbaumer, R., Nussbaumer, A., Gravey, M. & Jackson, C. (). Investigating the influence of the extreme Indian Ocean Dipole on the 2020 influx of Red-necked Phalaropes (*Phalaropus lobatus*) in Kenya. 
+> Nussbaumer, Raphaël, Mathieu Gravey, Améline Nussbaumer, and Colin Jackson. **2021**. “Investigating the Influence of the Extreme Indian Ocean Dipole on the 2020 Influx of Red-Necked Phalaropes *Phalaropus Lobatus* in Kenya.” *Ostrich* 1–9. doi: [10.2989/00306525.2021.1995908](https://doi.org/10.2989/00306525.2021.1995908).
